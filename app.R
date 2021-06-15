@@ -2,7 +2,10 @@ library(shiny)
 library(tidyverse)
 library(DT)
 
-creatures <- read_csv("creatures.csv")
+creatures <- read_csv("creatures.csv") %>%
+	mutate(
+		`Experience per Creature` = NA_real_
+	)
 
 #' get_creature_exp
 #'
@@ -68,7 +71,7 @@ server <- function(input, output, session){
 			transmute(
 				Creature,
 				Level,
-				`Experience per Creature` = get_creature_exp(Level, input$player_level),
+				`Experience per Creature`,
 				Number = input$creature_num,
 				`Total Experience` = Number * `Experience per Creature`
 			)
@@ -87,7 +90,39 @@ server <- function(input, output, session){
 		passer$choosen <- passer$choosen[-input$choosen_table_rows_selected,]
 	})
 
-	output$choosen_table <- renderDT(passer$choosen, selection = "single")
+	observe({
+		passer$pos <- creatures %>%
+			filter(Level >= input$player_level - 4, Level <= input$player_level + 4) %>%
+			mutate(
+				`Experience per Creature` = get_creature_exp(Level, input$player_level),
+			)
+	})
+
+	observe({
+		passer$choosen <- passer$choosen %>%
+			mutate(
+				`Experience per Creature` = get_creature_exp(Level, input$player_level),
+				`Total Experience` = Number * `Experience per Creature`
+			)
+	})
+
+	observeEvent(input$choosen_table_cell_edit,{
+		passer$choosen <- editData(passer$choosen, input$choosen_table_cell_edit, "choosen_table")
+	})
+	
+	output$exp <- renderText({
+		total_exp <- sum(passer$choosen$`Total Experience`, na.rm = TRUE)
+		encounter_difficulty <-if_else( total_exp <= 40 + (input$player_num - 4) * 10, "Trivial",
+								if_else(total_exp <= 60 + (input$player_num - 4) * 15, "Low",
+								if_else(total_exp <= 80 + (input$player_num - 4) * 20, "Moderate",
+								if_else(total_exp <= 120 + (input$player_num - 4) * 30, "Severe",
+								if_else(total_exp <= 160 + (input$player_num - 4) * 40, "Extreme", 
+								"TPK")))))
+		ret <- sprintf("%0.0f Exp; %s", total_exp, encounter_difficulty)
+		return(ret)
+	})
+
+	output$choosen_table <- renderDT(passer$choosen, selection = "single", editable = "cell")
 	output$possible_table <- renderDT(passer$pos, selection = "single")
 }
 
